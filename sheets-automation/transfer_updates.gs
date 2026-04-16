@@ -53,9 +53,8 @@ function CopyNotes() {
     return;
   }
 
-  // Read Dashboard data (row 4 onward, columns A through J)
-  // Columns: A=Key(hyperlink), B=Key(plain), C=IssueType, D=Summary, E=PM, F=Assignee, G=Priority, H=Status, I=Updates(skip), J=CallNotes
-  var dataRange = dashboard.getRange(4, 1, lastRow - 3, 10); // A4:J{lastRow}
+  // Read Dashboard data (row 4 onward, columns A through J) in one batch
+  var dataRange = dashboard.getRange(4, 1, lastRow - 3, 10);
   var data = dataRange.getValues();
 
   var rowsToClear = [];
@@ -99,49 +98,52 @@ function CopyNotes() {
   var existingDateLabel = wa1.getRange(2, 1).getValue().toString().trim();
   var isSameDay = (existingDateLabel === dateLabel);
 
-  var groupDataStartRow; // first data row in the current date group
-  var groupDataEndRow;   // last data row in the current date group
+  var groupDataStartRow;
+  var groupDataEndRow;
   var appendedCount = 0;
   var newCount = 0;
 
   if (isSameDay) {
     // --- SAME-DAY: merge into existing date group ---
 
-    // Find the extent of the existing date group (rows after the date label until empty separator)
-    var existingGroupStart = 3; // data starts at row 3
-    var existingGroupEnd = existingGroupStart;
+    // Batch-read Column A from row 3 onward to find the group boundary
     var wa1LastRow = wa1.getLastRow();
-    for (var r = existingGroupStart; r <= wa1LastRow; r++) {
-      var cellVal = wa1.getRange(r, 1).getValue().toString().trim();
-      if (cellVal === '') break; // empty separator = end of group
-      existingGroupEnd = r;
+    var scanRows = Math.min(wa1LastRow - 2, 200); // scan up to 200 rows — more than enough
+    var colAValues = wa1.getRange(3, 1, scanRows, 1).getValues();
+
+    var existingGroupStart = 3;
+    var existingGroupEnd = existingGroupStart;
+    for (var r = 0; r < colAValues.length; r++) {
+      if (colAValues[r][0].toString().trim() === '') break;
+      existingGroupEnd = existingGroupStart + r;
     }
 
-    // Build map of existing keys in the group: key -> row number
+    // Batch-read the existing group data (all 8 columns)
+    var groupSize = existingGroupEnd - existingGroupStart + 1;
+    var existingData = wa1.getRange(existingGroupStart, 1, groupSize, 8).getValues();
+
+    // Build map of existing keys: key -> { row number, index in existingData }
     var existingKeys = {};
-    if (existingGroupEnd >= existingGroupStart) {
-      var existingData = wa1.getRange(existingGroupStart, 1, existingGroupEnd - existingGroupStart + 1, 8).getValues();
-      for (var e = 0; e < existingData.length; e++) {
-        var eKey = existingData[e][0].toString().trim();
-        if (eKey) {
-          existingKeys[eKey] = existingGroupStart + e; // row number in WA1
-        }
+    for (var e = 0; e < existingData.length; e++) {
+      var eKey = existingData[e][0].toString().trim();
+      if (eKey) {
+        existingKeys[eKey] = { row: existingGroupStart + e, idx: e };
       }
     }
 
-    // Separate transfer rows into updates (existing keys) vs new inserts
+    // Separate into updates vs new inserts
     var newRows = [];
     var newKeys = [];
+    var notesToAppend = []; // { row, combinedNotes }
 
     for (var t = 0; t < transferRows.length; t++) {
       var tKey = transferRows[t][0];
       if (existingKeys[tKey]) {
-        // Append notes to existing Col H
-        var existingRow = existingKeys[tKey];
-        var existingNotes = wa1.getRange(existingRow, 8).getValue().toString().trim();
+        var info = existingKeys[tKey];
+        var existingNotes = existingData[info.idx][7].toString().trim(); // Col H from batch data
         var newNotes = transferRows[t][7].toString().trim();
         var combined = existingNotes ? existingNotes + ' | ' + newNotes : newNotes;
-        wa1.getRange(existingRow, 8).setValue(combined);
+        notesToAppend.push({ row: info.row, notes: combined });
         appendedCount++;
       } else {
         newRows.push(transferRows[t]);
@@ -149,15 +151,20 @@ function CopyNotes() {
       }
     }
 
-    // Insert new rows at the end of the existing group (before the separator)
+    // Batch-write appended notes
+    for (var a = 0; a < notesToAppend.length; a++) {
+      wa1.getRange(notesToAppend[a].row, 8).setValue(notesToAppend[a].notes);
+    }
+
+    // Insert new rows at the end of the existing group
     if (newRows.length > 0) {
-      var insertAt = existingGroupEnd + 1; // insert after last data row
+      var insertAt = existingGroupEnd + 1;
       wa1.insertRowsBefore(insertAt, newRows.length);
       wa1.getRange(insertAt, 1, newRows.length, 8).setValues(newRows);
 
       // Set CLIP formatting for new rows
-      var newRange = wa1.getRange(insertAt, 1, newRows.length, wa1.getMaxColumns());
-      newRange.setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+      wa1.getRange(insertAt, 1, newRows.length, wa1.getMaxColumns())
+        .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
 
       // Add hyperlinks for new rows
       for (var h = 0; h < newKeys.length; h++) {
@@ -185,19 +192,14 @@ function CopyNotes() {
     var totalNewRows = 1 + transferRows.length + 1; // date label + data + separator
     wa1.insertRowsBefore(2, totalNewRows);
 
-    // Write date label in row 2, Column A
     wa1.getRange(2, 1).setValue(dateLabel);
-
-    // Write data rows starting at row 3
     wa1.getRange(3, 1, transferRows.length, 8).setValues(transferRows);
 
-    // Row after last data row is the empty separator (left blank intentionally)
-
     // Set text wrapping to CLIP for all newly inserted rows
-    var newRowsRange = wa1.getRange(2, 1, totalNewRows, wa1.getMaxColumns());
-    newRowsRange.setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+    wa1.getRange(2, 1, totalNewRows, wa1.getMaxColumns())
+      .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
 
-    // Add hyperlinks to Column A for each transferred row
+    // Add hyperlinks to Column A
     for (var h2 = 0; h2 < jiraKeys.length; h2++) {
       var link2 = 'https://celerdata-inc.atlassian.net/browse/' + jiraKeys[h2];
       var richText2 = SpreadsheetApp.newRichTextValue()
@@ -207,7 +209,7 @@ function CopyNotes() {
       wa1.getRange(3 + h2, 1).setRichTextValue(richText2);
     }
 
-    // Group only the data rows so the collapse toggle sits on the date row
+    // Group data rows under the date label
     var gStart = 3;
     var gEnd = 2 + transferRows.length;
     wa1.getRange(gStart, 1, gEnd - gStart + 1, 1).shiftRowGroupDepth(1);
@@ -217,23 +219,28 @@ function CopyNotes() {
     newCount = transferRows.length;
   }
 
-  // Clear Column J (Call Notes) in Dashboard for transferred rows
+  // Clear Column J in Dashboard for transferred rows
   for (var j = 0; j < rowsToClear.length; j++) {
-    dashboard.getRange(rowsToClear[j], 10).clearContent(); // Col J
+    dashboard.getRange(rowsToClear[j], 10).clearContent();
   }
 
-  // Update VLOOKUP formulas in Dashboard to point to the current WA1 date group range
-  // VLOOKUP fetches column 9 = Update (I) — the refined update written manually in WA1
+  // Batch-update VLOOKUP formulas in Dashboard using setFormulas (columns I and R)
   var dashLastRow = dashboard.getLastRow();
+  var numFormulaRows = dashLastRow - 3; // rows 4 through dashLastRow
 
-  for (var f = 4; f <= dashLastRow; f++) {
-    // Column I (col 9) — VLOOKUP by Key in Column A
-    var formulaI = '=IFNA(VLOOKUP(A' + f + ',\'WA1\'!$A$' + groupDataStartRow + ':$I$' + groupDataEndRow + ',9,FALSE),"")';
-    dashboard.getRange(f, 9).setFormula(formulaI);
+  if (numFormulaRows > 0) {
+    // Build formula arrays for Column I (col 9) and Column R (col 18)
+    var formulasI = [];
+    var formulasR = [];
 
-    // Column R (col 18) — same VLOOKUP but by Key in Column L (for the Done/Closed section)
-    var formulaR = '=IFNA(VLOOKUP(L' + f + ',\'WA1\'!$A$' + groupDataStartRow + ':$I$' + groupDataEndRow + ',9,FALSE),"")';
-    dashboard.getRange(f, 18).setFormula(formulaR);
+    for (var f = 4; f <= dashLastRow; f++) {
+      formulasI.push(['=IFNA(VLOOKUP(A' + f + ',\'WA1\'!$A$' + groupDataStartRow + ':$I$' + groupDataEndRow + ',9,FALSE),"")']);
+      formulasR.push(['=IFNA(VLOOKUP(L' + f + ',\'WA1\'!$A$' + groupDataStartRow + ':$I$' + groupDataEndRow + ',9,FALSE),"")']);
+    }
+
+    // Two batch writes instead of 2×N individual writes
+    dashboard.getRange(4, 9, numFormulaRows, 1).setFormulas(formulasI);
+    dashboard.getRange(4, 18, numFormulaRows, 1).setFormulas(formulasR);
   }
 
   // Build summary message
