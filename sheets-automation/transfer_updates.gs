@@ -48,6 +48,7 @@ function CopyNotes() {
   }
 
   var lastRow = dashboard.getLastRow();
+  Logger.log('Dashboard getLastRow() = ' + lastRow);
   if (lastRow < 4) {
     SpreadsheetApp.getUi().alert('No data rows found in Dashboard.');
     return;
@@ -56,6 +57,7 @@ function CopyNotes() {
   // Read Dashboard data (row 4 onward, columns A through J) in one batch
   var dataRange = dashboard.getRange(4, 1, lastRow - 3, 10);
   var data = dataRange.getValues();
+  Logger.log('Read ' + data.length + ' rows from Dashboard (rows 4-' + lastRow + ')');
 
   var rowsToClear = [];
   var transferRows = [];
@@ -65,6 +67,7 @@ function CopyNotes() {
     var colJ = data[i][9]; // Column J (index 9) = Call Notes
     if (colJ && colJ.toString().trim() !== '') {
       var jiraKey = data[i][1].toString().trim(); // Column B (plain key)
+      Logger.log('Found Col J content at row ' + (i + 4) + ': key=' + jiraKey + ', notes="' + colJ.toString().substring(0, 50) + '"');
       if (!jiraKey) continue;
 
       transferRows.push([
@@ -83,8 +86,10 @@ function CopyNotes() {
     }
   }
 
+  Logger.log('Transfer rows found: ' + transferRows.length + ', keys: ' + jiraKeys.join(', '));
+
   if (transferRows.length === 0) {
-    SpreadsheetApp.getUi().alert('No rows with Call Notes (Column J) content found.');
+    SpreadsheetApp.getUi().alert('No rows with Call Notes (Column J) content found.\n\nDebug: lastRow=' + lastRow + ', data.length=' + data.length);
     return;
   }
 
@@ -95,8 +100,17 @@ function CopyNotes() {
   var dateLabel = months[now.getMonth()] + ' ' + now.getDate() + ' ' + now.getFullYear();
 
   // Check if today's date group already exists at the top of WA1 (row 2)
-  var existingDateLabel = wa1.getRange(2, 1).getValue().toString().trim();
+  // getValue() may return a Date object (Sheets auto-parses date-like strings).
+  // Handle both cases: Date object → format to match our label, string → use as-is.
+  var wa1Row2Value = wa1.getRange(2, 1).getValue();
+  var existingDateLabel;
+  if (wa1Row2Value instanceof Date) {
+    existingDateLabel = months[wa1Row2Value.getMonth()] + ' ' + wa1Row2Value.getDate() + ' ' + wa1Row2Value.getFullYear();
+  } else {
+    existingDateLabel = wa1Row2Value.toString().trim();
+  }
   var isSameDay = (existingDateLabel === dateLabel);
+  Logger.log('Date check: today="' + dateLabel + '", WA1 row 2="' + existingDateLabel + '", isSameDay=' + isSameDay);
 
   var groupDataStartRow;
   var groupDataEndRow;
@@ -117,6 +131,7 @@ function CopyNotes() {
       if (colAValues[r][0].toString().trim() === '') break;
       existingGroupEnd = existingGroupStart + r;
     }
+    Logger.log('Same-day group boundary: rows ' + existingGroupStart + '-' + existingGroupEnd);
 
     // Batch-read the existing group data (all 8 columns)
     var groupSize = existingGroupEnd - existingGroupStart + 1;
@@ -130,6 +145,7 @@ function CopyNotes() {
         existingKeys[eKey] = { row: existingGroupStart + e, idx: e };
       }
     }
+    Logger.log('Existing WA1 keys: ' + Object.keys(existingKeys).join(', '));
 
     // Separate into updates vs new inserts
     var newRows = [];
@@ -192,7 +208,7 @@ function CopyNotes() {
     var totalNewRows = 1 + transferRows.length + 1; // date label + data + separator
     wa1.insertRowsBefore(2, totalNewRows);
 
-    wa1.getRange(2, 1).setValue(dateLabel);
+    wa1.getRange(2, 1).setNumberFormat('@').setValue(dateLabel); // '@' = plain text, prevents date auto-parsing
     wa1.getRange(3, 1, transferRows.length, 8).setValues(transferRows);
 
     // Set text wrapping to CLIP for all newly inserted rows
