@@ -1,6 +1,6 @@
 /**
  * No menu on open — keeps UI clean during screen sharing.
- * Use Extensions > Macros > copyNotesToWA1 (Ctrl+Alt+Shift+1) to trigger.
+ * Use Extensions > Macros > CopyNotes (Ctrl+Alt+Shift+1) to trigger.
  */
 function onOpen() {
   // Menu hidden by default. Run showMenu() from script editor if needed.
@@ -15,7 +15,7 @@ function showMenu() {
 
   SpreadsheetApp.getUi()
     .createMenu('📋 Update Tools')
-    .addItem('Copy Call Notes to WA1', 'copyNotesToWA1')
+    .addItem('Copy Call Notes to WA1', 'CopyNotes')
     .addToUi();
 }
 
@@ -37,7 +37,7 @@ function showMenu() {
  * Always updates Dashboard Column I and R VLOOKUP to reference the current WA1 range.
  * Then clears Column J in Dashboard.
  */
-function copyNotesToWA1() {
+function CopyNotes() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var dashboard = ss.getSheetByName('Dashboard');
   var wa1 = ss.getSheetByName('WA1');
