@@ -225,8 +225,17 @@ function CopyNotes() {
   }
 
   // Batch-update VLOOKUP formulas in Dashboard using setFormulas (columns I and R)
-  var dashLastRow = dashboard.getLastRow();
-  var numFormulaRows = dashLastRow - 3; // rows 4 through dashLastRow
+  // Find the actual last row with data by scanning Column B (plain key) from the data
+  // we already read. dashboard.getLastRow() returns 1520 (allocated sheet size) which
+  // would cause us to write ~1500 unnecessary formulas to empty rows.
+  var actualLastDataRow = 3; // minimum (header row)
+  for (var d = data.length - 1; d >= 0; d--) {
+    if (data[d][1] && data[d][1].toString().trim() !== '') {
+      actualLastDataRow = d + 4; // data starts at row 4, so row = index + 4
+      break;
+    }
+  }
+  var numFormulaRows = actualLastDataRow - 3; // rows 4 through actualLastDataRow
 
   if (numFormulaRows > 0) {
     // Build formula arrays for Column I (col 9) and Column R (col 18)
@@ -234,7 +243,7 @@ function CopyNotes() {
     var formulasR = [];
     var wa1Ref = "'WA1'!$A$" + groupDataStartRow + ":$I$" + groupDataEndRow;
 
-    for (var f = 4; f <= dashLastRow; f++) {
+    for (var f = 4; f <= actualLastDataRow; f++) {
       formulasI.push(['=IFNA(VLOOKUP(A' + f + ',' + wa1Ref + ',9,FALSE),"")']);
       formulasR.push(['=IFNA(VLOOKUP(L' + f + ',' + wa1Ref + ',9,FALSE),"")']);
     }
@@ -254,7 +263,7 @@ function CopyNotes() {
     message += 'Transferred ' + newCount + ' row(s) to WA1.\n' +
       'Date group: ' + dateLabel + '\n';
   }
-  message += 'Column J cleared. Columns I & R formulas updated to WA1 range A' + groupDataStartRow + ':I' + groupDataEndRow + '.';
+  message += 'Column J cleared. Columns I & R formulas updated (rows 4-' + actualLastDataRow + ') to WA1 range A' + groupDataStartRow + ':I' + groupDataEndRow + '.';
 
   SpreadsheetApp.getUi().alert(message);
 }
