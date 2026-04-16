@@ -232,10 +232,11 @@ function CopyNotes() {
     // Build formula arrays for Column I (col 9) and Column R (col 18)
     var formulasI = [];
     var formulasR = [];
+    var wa1Ref = "'WA1'!$A$" + groupDataStartRow + ":$I$" + groupDataEndRow;
 
     for (var f = 4; f <= dashLastRow; f++) {
-      formulasI.push(['=IFNA(VLOOKUP(A' + f + ',\'WA1\'!$A$' + groupDataStartRow + ':$I$' + groupDataEndRow + ',9,FALSE),"")']);
-      formulasR.push(['=IFNA(VLOOKUP(L' + f + ',\'WA1\'!$A$' + groupDataStartRow + ':$I$' + groupDataEndRow + ',9,FALSE),"")']);
+      formulasI.push(['=IFNA(VLOOKUP(A' + f + ',' + wa1Ref + ',9,FALSE),"")']);
+      formulasR.push(['=IFNA(VLOOKUP(L' + f + ',' + wa1Ref + ',9,FALSE),"")']);
     }
 
     // Two batch writes instead of 2×N individual writes
